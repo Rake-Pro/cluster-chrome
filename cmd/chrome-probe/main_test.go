@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func fakeChrome(t *testing.T) *httptest.Server {
 		ws := "ws" + strings.TrimPrefix(srv.URL, "http") + "/devtools/page/1"
 		json.NewEncoder(w).Encode([]map[string]string{{"type": "page", "webSocketDebuggerUrl": ws}})
 	})
-	mux.Handle("/devtools/page/1", websocket.Handler(func(c *websocket.Conn) {
+	handler := func(c *websocket.Conn) {
 		for {
 			var req struct {
 				ID     int    `json:"id"`
@@ -45,7 +46,17 @@ func fakeChrome(t *testing.T) *httptest.Server {
 				websocket.JSON.Send(c, map[string]any{"method": "Page.loadEventFired", "params": map[string]any{}})
 			}
 		}
-	}))
+	}
+	// Like Chrome 111+ without --remote-allow-origins: any Origin header is refused.
+	mux.Handle("/devtools/page/1", websocket.Server{
+		Handler: handler,
+		Handshake: func(_ *websocket.Config, r *http.Request) error {
+			if r.Header.Get("Origin") != "" {
+				return errors.New("origin rejected")
+			}
+			return nil
+		},
+	})
 	srv = httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv

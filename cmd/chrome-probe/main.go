@@ -11,12 +11,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
-
-	"golang.org/x/net/websocket"
 )
 
 const probeJS = `(() => {
@@ -184,7 +181,7 @@ func probe(ctx context.Context, base, pageURL string, wait time.Duration, stderr
 	if err != nil {
 		return nil, err
 	}
-	c, err := dial(ctx, wsURL, base)
+	c, err := dial(ctx, wsURL)
 	if err != nil {
 		return nil, err
 	}
@@ -292,26 +289,18 @@ func pageTarget(ctx context.Context, base string) (string, error) {
 }
 
 type cdp struct {
-	conn *websocket.Conn
+	conn *wsConn
 	id   int
 	seen map[string]bool
 }
 
-func dial(ctx context.Context, wsURL, base string) (*cdp, error) {
-	u, err := url.Parse(base)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := websocket.NewConfig(wsURL, u.Scheme+"://"+u.Host)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := cfg.DialContext(ctx)
+func dial(ctx context.Context, wsURL string) (*cdp, error) {
+	conn, err := dialWS(ctx, wsURL)
 	if err != nil {
 		return nil, fmt.Errorf("websocket dial: %w", err)
 	}
 	if d, ok := ctx.Deadline(); ok {
-		conn.SetDeadline(d)
+		conn.c.SetDeadline(d)
 	}
 	return &cdp{conn: conn, seen: map[string]bool{}}, nil
 }
@@ -329,12 +318,12 @@ type message struct {
 // Events seen on the way are remembered for waitEvent.
 func (c *cdp) call(method string, params any) (json.RawMessage, error) {
 	c.id++
-	if err := websocket.JSON.Send(c.conn, map[string]any{"id": c.id, "method": method, "params": params}); err != nil {
+	if err := c.conn.sendJSON(map[string]any{"id": c.id, "method": method, "params": params}); err != nil {
 		return nil, fmt.Errorf("%s: send: %w", method, err)
 	}
 	for {
 		var m message
-		if err := websocket.JSON.Receive(c.conn, &m); err != nil {
+		if err := c.conn.recvJSON(&m); err != nil {
 			return nil, fmt.Errorf("%s: receive: %w", method, err)
 		}
 		if m.ID == 0 {
@@ -354,7 +343,7 @@ func (c *cdp) call(method string, params any) (json.RawMessage, error) {
 func (c *cdp) waitEvent(method string) error {
 	for !c.seen[method] {
 		var m message
-		if err := websocket.JSON.Receive(c.conn, &m); err != nil {
+		if err := c.conn.recvJSON(&m); err != nil {
 			return fmt.Errorf("waiting for %s: %w", method, err)
 		}
 		if m.ID == 0 {
