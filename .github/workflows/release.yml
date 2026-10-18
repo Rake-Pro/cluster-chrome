@@ -94,6 +94,9 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_CHROME }}
+          # semver only: no latest tag (flavor latest=auto would add one)
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}},value=${{ steps.rel.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.rel.outputs.tag }}
@@ -114,6 +117,9 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_PLUGIN }}
+          # semver only: no latest tag (flavor latest=auto would add one)
+          flavor: |
+            latest=false
           tags: |
             type=semver,pattern={{version}},value=${{ steps.rel.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.rel.outputs.tag }}
