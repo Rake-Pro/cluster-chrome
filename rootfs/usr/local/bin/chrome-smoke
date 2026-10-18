@@ -1,0 +1,18 @@
+#!/bin/bash
+# Default CMD: start Chrome on the display with DevTools on localhost, run
+# chrome-probe against it and exit with the probe's status. Used by CI and
+# for checking a node's GPU path by hand (kubectl run ... -- chrome-smoke).
+#   PROBE_ARGS  extra chrome-probe flags, e.g. "-fail-on-swiftshader"
+set -euo pipefail
+chrome-gpu --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 \
+  --user-data-dir=/tmp/chrome-smoke --no-first-run --no-default-browser-check \
+  --window-size=1280,720 about:blank > /tmp/chrome-smoke.log 2>&1 &
+pid=$!
+# shellcheck disable=SC2086
+if chrome-probe -wait 30s -expect-webdriver=false ${PROBE_ARGS:-}; then rc=0; else rc=$?; fi
+if [ "${rc}" -ne 0 ]; then
+  echo "--- chrome log (tail)" >&2
+  tail -n 40 /tmp/chrome-smoke.log >&2 || true
+fi
+kill "${pid}" 2>/dev/null || true
+exit "${rc}"

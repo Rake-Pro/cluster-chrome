@@ -1,0 +1,27 @@
+#!/bin/bash
+# Starts the virtual display, then execs the command. Xvfb runs as a sibling
+# under tini; if it dies the healthcheck fails and the pod is restarted.
+#   DISPLAY   X display to create (default :1)
+#   SCREEN    WxHxDepth (default 1920x1080x24)
+#   XVFB_ARGS extra Xvfb arguments
+set -euo pipefail
+: "${DISPLAY:=:1}" "${SCREEN:=1920x1080x24}" "${XVFB_ARGS:=}"
+num="${DISPLAY#:}"
+# Xvfb creates /tmp/.X11-unix itself but wants it to exist with the sticky bit
+# when /tmp is a fresh emptyDir; make it ourselves so there is no warning.
+mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+# -nolisten tcp: unix socket only. +extension GLX: llvmpipe GL for anything
+# that insists on GLX (Chrome itself goes through ANGLE/Vulkan, see chrome-gpu).
+# shellcheck disable=SC2086
+Xvfb "${DISPLAY}" -screen 0 "${SCREEN}" -nolisten tcp -noreset +extension GLX +extension RANDR ${XVFB_ARGS} \
+  > /tmp/xvfb.log 2>&1 &
+for _ in $(seq 1 100); do
+  [ -S "/tmp/.X11-unix/X${num}" ] && break
+  sleep 0.1
+done
+if [ ! -S "/tmp/.X11-unix/X${num}" ]; then
+  echo "entrypoint: Xvfb did not create /tmp/.X11-unix/X${num}" >&2
+  cat /tmp/xvfb.log >&2 || true
+  exit 1
+fi
+exec "$@"

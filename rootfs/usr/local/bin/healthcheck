@@ -1,0 +1,4 @@
+#!/bin/bash
+# Healthy = the X socket exists and Xvfb is alive.
+num="${DISPLAY:-:1}"; num="${num#:}"
+[ -S "/tmp/.X11-unix/X${num}" ] && pgrep -x Xvfb > /dev/null

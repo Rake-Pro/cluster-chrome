@@ -1,0 +1,48 @@
+# AppArmor profile for cluster-chrome pods: the container runtime's default
+# profile (moby profiles/apparmor/template.go, v28.3.3, rendered for
+# containerd) plus one rule, `userns,`, so Chrome's namespace sandbox can
+# create user namespaces on hosts that restrict them to profiles that allow
+# it (Ubuntu's kernel.apparmor_restrict_unprivileged_userns=1). Nothing else
+# is loosened. Install with deploy/node/install.sh; reference from the pod as
+#   securityContext.appArmorProfile: {type: Localhost, localhostProfile: cluster-chrome}
+abi <abi/4.0>,
+#include <tunables/global>
+
+profile cluster-chrome flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+  userns,
+  # Host (privileged) processes may send signals to container processes.
+  signal (receive) peer=unconfined,
+  # OCI runtimes may send signals to container processes (stop/kill).
+  signal (receive) peer=runc,
+  signal (receive) peer=crun,
+  # Container processes may send signals amongst themselves.
+  signal (send,receive) peer=cluster-chrome,
+
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9/]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # suppress ptrace denials for ps inside the container
+  ptrace (trace,read,tracedby,readby) peer=cluster-chrome,
+}

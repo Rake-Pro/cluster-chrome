@@ -1,0 +1,75 @@
+# DRI device plugin DaemonSet: advertises each DRM render node as
+# rake-pro.github.io/dri (shared -count times) so a non-privileged pod can
+# request `rake-pro.github.io/dri: 1` and receive the device node.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dri-device-plugin
+  namespace: cluster-chrome
+  labels:
+    app.kubernetes.io/name: dri-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dri-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dri-device-plugin
+    spec:
+      nodeSelector:
+        cluster-chrome/gpu: "true"
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+        - operator: Exists
+          effect: NoExecute
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dri-device-plugin
+          # Placeholder tag: pin to a semver tag plus digest before deploying.
+          image: ghcr.io/rake-pro/cluster-chrome-dri-plugin:latest
+          args:
+            - -resource=rake-pro.github.io/dri
+            - -devices=/dev/dri/renderD*
+            - -count=4
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            # Root only because /var/lib/kubelet/device-plugins is root-owned
+            # 0755, so only uid 0 can create the plugin socket there. With all
+            # capabilities dropped this grants nothing beyond owner write on
+            # that dir. Drop to 65532 if the dir is made group-writable.
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: dri
+              mountPath: /dev/dri
+              readOnly: true
+      volumes:
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+        - name: dri
+          hostPath:
+            path: /dev/dri
+            type: Directory

@@ -1,0 +1,98 @@
+name: CI
+
+# Required check on dev -> main promotion PRs, so it runs on every dev SHA.
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build, vet, test (vendored)
+        run: |
+          set -euo pipefail
+          go build -mod=vendor ./...
+          go vet -mod=vendor ./...
+          go test -mod=vendor ./...
+          # the vendor dir must match go.mod exactly
+          go mod vendor && git diff --exit-code --stat -- vendor go.mod go.sum
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build chrome image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: cluster-chrome:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build DRI device plugin image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.plugin
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: cluster-chrome-dri-plugin:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Smoke test: real Chrome on the virtual display with its sandbox ON.
+      # ubuntu-24.04+ runners restrict unprivileged user namespaces via
+      # AppArmor exactly like a cluster node does, so the runner needs the
+      # same relaxation a node gets (deploy/node/README.md); the seccomp
+      # profile is the one the pod spec references.
+      - name: Smoke test (Chrome + DevTools probe, sandbox enabled)
+        run: |
+          set -euo pipefail
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          docker run --rm --shm-size=512m \
+            --security-opt seccomp=deploy/node/seccomp/cluster-chrome.json \
+            -e PROBE_ARGS="-json=false" \
+            cluster-chrome:ci
+
+      - name: Smoke test (no-sandbox fallback path)
+        run: |
+          set -euo pipefail
+          docker run --rm --shm-size=512m -e CHROME_NO_SANDBOX=1 -e PROBE_ARGS="-json=false" cluster-chrome:ci
+
+      - name: Trivy (both images, CRITICAL gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cluster-chrome:ci
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: cluster-chrome-dri-plugin:ci
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+          skip-setup-trivy: true

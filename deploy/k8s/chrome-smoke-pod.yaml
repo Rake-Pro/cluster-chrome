@@ -1,0 +1,58 @@
+# Smoke-test pod: boots the image on a node with the DRI device plugin and
+# runs chrome-smoke (Chrome + DevTools probe). Exit 0 = sandbox on, webdriver
+# false, GPU renderer present (-fail-on-swiftshader). Reusable as the
+# security-context template for any workload built on this image.
+#   kubectl apply -f deploy/k8s/chrome-smoke-pod.yaml
+#   kubectl logs -f chrome-smoke; kubectl get pod chrome-smoke   # Completed = pass
+apiVersion: v1
+kind: Pod
+metadata:
+  name: chrome-smoke
+  namespace: cluster-chrome
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    cluster-chrome/gpu: "true"
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    # gid of the host's `render` group (owner of /dev/dri/renderD*); check
+    # with `getent group render` on the node.
+    supplementalGroups: [991]
+    seccompProfile:
+      type: Localhost
+      localhostProfile: profiles/cluster-chrome.json
+    appArmorProfile:
+      type: Localhost
+      localhostProfile: cluster-chrome
+  containers:
+    - name: chrome
+      image: ghcr.io/rake-pro/cluster-chrome:1.0.0   # pin the release
+      args: ["chrome-smoke"]
+      env:
+        - name: PROBE_ARGS
+          value: "-fail-on-swiftshader"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      resources:
+        requests: { cpu: 250m, memory: 512Mi }
+        limits:
+          cpu: "2"
+          memory: 2Gi
+          rake-pro.github.io/dri: 1
+      volumeMounts:
+        - { name: tmp, mountPath: /tmp }
+        - { name: shm, mountPath: /dev/shm }
+        - { name: home, mountPath: /home/chrome }
+  volumes:
+    - name: tmp
+      emptyDir: { sizeLimit: 2Gi }
+    - name: shm
+      emptyDir: { medium: Memory, sizeLimit: 1Gi }
+    - name: home
+      emptyDir: {}

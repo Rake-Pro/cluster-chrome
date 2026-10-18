@@ -1,0 +1,17 @@
+# DRI device plugin: advertises /dev/dri/renderD* as an extended resource.
+#
+# The image runs as 65532 by default, but the kubelet plugin socket dir
+# (/var/lib/kubelet/device-plugins) is root-owned 0755 by default. Either run
+# the DaemonSet as root (see deploy/k8s/dri-device-plugin.yaml) or make that
+# dir group-writable for this GID. If the socket cannot be created the binary
+# exits with an error naming the path and this cause.
+
+FROM golang:1.27.2-trixie AS build
+WORKDIR /src
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dri-device-plugin ./cmd/dri-device-plugin
+
+FROM scratch
+COPY --from=build /out/dri-device-plugin /dri-device-plugin
+USER 65532:65532
+ENTRYPOINT ["/dri-device-plugin"]

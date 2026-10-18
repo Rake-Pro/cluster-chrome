@@ -1,0 +1,52 @@
+name: Trivy rescan
+
+# Rescans the CURRENT released images weekly so CVEs disclosed after release
+# (Debian packages, Chrome, Go stdlib, vendored modules) surface without a
+# code push. Fails on CRITICAL/HIGH. Builds and pushes nothing.
+on:
+  schedule:
+    - cron: '15 5 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: trivy-rescan
+
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+      - name: Resolve current release tag
+        id: tag
+        run: |
+          set -euo pipefail
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
+          [ -n "$latest" ] || { echo "no v* tag; nothing to scan" >&2; exit 1; }
+          echo "version=${latest#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/rake-pro/cluster-chrome:${{ steps.tag.outputs.version }}
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ghcr.io/rake-pro/cluster-chrome-dri-plugin:${{ steps.tag.outputs.version }}
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          trivyignores: .trivyignore.yaml
+          skip-setup-trivy: true

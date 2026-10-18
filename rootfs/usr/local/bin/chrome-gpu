@@ -1,0 +1,21 @@
+#!/bin/bash
+# Launches Google Chrome with a real GPU renderer on the virtual display.
+#
+# Xvfb has no GPU-backed GLX, so Chrome is told to render WebGL/compositing
+# through ANGLE on Vulkan, which talks to the DRM render node directly
+# (/dev/dri/renderD*, handed to the pod by the DRI device plugin). With no
+# render node present the flags are dropped and Chrome falls back to its
+# software renderer (SwiftShader), which chrome-probe reports as such.
+#
+# Chrome's own sandbox is never disabled here. CHROME_NO_SANDBOX=1 is the
+# documented escape hatch for hosts where user namespaces cannot be enabled
+# for the pod (see deploy/node). Extra arguments are passed through.
+set -euo pipefail
+flags=()
+if compgen -G '/dev/dri/renderD*' > /dev/null; then
+  flags+=(--use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan --ignore-gpu-blocklist)
+fi
+if [ "${CHROME_NO_SANDBOX:-0}" = "1" ]; then
+  flags+=(--no-sandbox)
+fi
+exec /usr/bin/google-chrome-stable "${flags[@]}" "$@"
