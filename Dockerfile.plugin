@@ -6,7 +6,7 @@
 # dir group-writable for this GID. If the socket cannot be created the binary
 # exits with an error naming the path and this cause.
 
-FROM golang:1.27.2-trixie AS build
+FROM golang:1.27.3-trixie AS build
 WORKDIR /src
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/dri-device-plugin ./cmd/dri-device-plugin
