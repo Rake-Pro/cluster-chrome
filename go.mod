@@ -6,7 +6,7 @@ require (
 	github.com/rs/zerolog v1.35.1
 	golang.org/x/net v0.62.0
 	google.golang.org/grpc v1.84.0
-	k8s.io/kubelet v0.37.1
+	k8s.io/kubelet v0.37.2
 )
 
 require (
