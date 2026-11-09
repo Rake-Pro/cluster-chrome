@@ -10,16 +10,24 @@ num="${DISPLAY#:}"
 # Xvfb creates /tmp/.X11-unix itself but wants it to exist with the sticky bit
 # when /tmp is a fresh emptyDir; make it ourselves so there is no warning.
 mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+# A container restart inside the same pod (OOM kill, crash) keeps the /tmp
+# emptyDir, so the previous Xvfb's lock file and socket are still there. Xvfb
+# then refuses to start ("Server is already active for display N") while the
+# stale socket makes the check below pass and Chrome gets a dead display.
+# Nothing else owns this display in the container, so the leftovers are ours.
+rm -f "/tmp/.X${num}-lock" "/tmp/.X11-unix/X${num}"
 # -nolisten tcp: unix socket only. +extension GLX: llvmpipe GL for anything
 # that insists on GLX (Chrome itself goes through ANGLE/Vulkan, see chrome-gpu).
 # shellcheck disable=SC2086
 Xvfb "${DISPLAY}" -screen 0 "${SCREEN}" -nolisten tcp -noreset +extension GLX +extension RANDR ${XVFB_ARGS} \
   > /tmp/xvfb.log 2>&1 &
+xvfb_pid=$!
 for _ in $(seq 1 100); do
   [ -S "/tmp/.X11-unix/X${num}" ] && break
+  kill -0 "${xvfb_pid}" 2>/dev/null || break
   sleep 0.1
 done
-if [ ! -S "/tmp/.X11-unix/X${num}" ]; then
+if [ ! -S "/tmp/.X11-unix/X${num}" ] || ! kill -0 "${xvfb_pid}" 2>/dev/null; then
   echo "entrypoint: Xvfb did not create /tmp/.X11-unix/X${num}" >&2
   cat /tmp/xvfb.log >&2 || true
   exit 1
