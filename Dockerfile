@@ -20,7 +20,7 @@
 # Stage: probe (Go) - builds the CDP fingerprint probe shipped in the image.
 ############################
 ARG DEBIAN_DIGEST=sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
-ARG GO_VERSION=1.27.3
+ARG GO_VERSION=1.27.4
 FROM golang:${GO_VERSION}-trixie AS probe
 WORKDIR /src
 COPY go.mod go.sum ./
