@@ -115,6 +115,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Chrome and the apt upgrade are unpinned: a cached runtime stage would
+          # ship the Chrome build of the previous release.
+          no-cache-filters: runtime
 
       - name: Plugin image metadata
         id: meta_plugin
